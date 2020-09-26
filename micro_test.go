@@ -68,6 +68,14 @@ func TestMicro_Hooks(t *testing.T) {
 	micro1.Wait()
 }
 
+func TestDoOnce(t *testing.T) {
+	micro := NewMicro(5, DoOnce(func(i int, m *Micro) {
+		log.Println("hello!")
+	}))
+	micro.Start()
+	micro.WaitFor(time.Second)
+}
+
 func ExampleMicro_Start() {
 	const Success Event = "success"
 	const Failed Event = "failed"
