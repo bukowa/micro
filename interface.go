@@ -23,8 +23,8 @@ import (
 // Interface represents Micro methods.
 // It has no real use. It can be changed without notice.
 type Interface interface {
-	Start()
-	Stop()
+	Start() bool
+	Stop() bool
 	Wait()
 	Context() context.Context
 
