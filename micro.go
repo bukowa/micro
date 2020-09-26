@@ -29,16 +29,19 @@ type Micro struct {
 	sync.RWMutex
 	sync.WaitGroup
 	size  int
-	task  func(int, *Micro)
+	task  func(int, *Micro) Event
 	stop  chan struct{}
 	ctx   context.Context
 	hooks map[Event][]func()
+
+	started bool
 }
 
 // New creates new Micro.
 // Size is equal to number of goroutines spawned when it's started.
 // Each spawned goroutine runs provided task
-func New(size int, task func(i int, m *Micro), hooks ...Hook) *Micro {
+func New(size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
+
 	m := &Micro{
 		size:  size,
 		task:  task,
@@ -50,9 +53,8 @@ func New(size int, task func(i int, m *Micro), hooks ...Hook) *Micro {
 	return m
 }
 
-
 // NewWithContext creates new Micro with context.
-func NewWithContext(ctx context.Context,size int, task func(i int, m *Micro), hooks ...Hook) *Micro {
+func NewWithContext(ctx context.Context, size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
 	m := New(size, task, hooks...)
 	m.ctx = ctx
 	return m
@@ -65,18 +67,23 @@ func (m *Micro) RegisterHooks(hooks map[Event][]func(m *Micro) func()) {
 			h[event] = append(h[event], f(m))
 		}
 	}
-	m.registerHooks(&hook{h:h})
+	m.registerHooks(&hook{h: h})
 }
 
 // Stop sends signals to stop all goroutines.
-func (m *Micro) Stop() {
-
-	// run hooks before locking
-	m.RunHooks(BeforeStop)
+func (m *Micro) Stop() bool {
 
 	// obtain lock
 	defer m.Unlock()
 	m.Lock()
+
+	// do not stop if not started
+	if !m.started {
+		return false
+	}
+
+	// run hooks
+	m.RunHooks(BeforeStop)
 
 	// notify each goroutine to stop
 	m.ForSize(func(i int, m *Micro) {
@@ -85,17 +92,33 @@ func (m *Micro) Stop() {
 
 	// run hooks
 	m.RunHooks(AfterStop)
+
+	// mark as not started
+	m.started = false
+	return true
+}
+
+// Started returns boolean indicating if micro is started.
+func (m *Micro) Started() bool {
+	defer m.Unlock()
+	m.Lock()
+	return m.started
 }
 
 // Start starts macro size of goroutines.
-func (m *Micro) Start() {
-
-	// run hooks before locking
-	m.RunHooks(BeforeStart)
+func (m *Micro) Start() bool {
 
 	// obtain lock
 	defer m.Unlock()
 	m.Lock()
+
+	// skip if started
+	if m.started {
+		return false
+	}
+
+	// run hooksg
+	m.RunHooks(BeforeStart)
 
 	// channel that each goroutines notifies when it starts
 	var started = make(chan struct{}, m.size)
@@ -118,7 +141,7 @@ func (m *Micro) Start() {
 				case <-m.Context().Done():
 					return
 				default:
-					m.task(i, m)
+					m.RunHooks(m.task(i, m))
 				}
 			}
 		}(i)
@@ -129,8 +152,12 @@ func (m *Micro) Start() {
 		<-started
 	})
 
+	// mark as started
+	m.started = true
+
 	// run hooks
 	m.RunHooks(AfterStart)
+	return true
 }
 
 // Wait waits for macro to finish.
