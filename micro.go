@@ -105,7 +105,7 @@ func (m *Micro) Started() bool {
 	return m.started
 }
 
-// Start starts macro size of goroutines.
+// Start starts Micro.size of goroutines.
 func (m *Micro) Start() bool {
 
 	// obtain lock
@@ -160,7 +160,7 @@ func (m *Micro) Start() bool {
 	return true
 }
 
-// Wait waits for macro to finish.
+// Wait waits for Micro to finish.
 func (m *Micro) Wait() {
 	m.RunHooks(BeforeWait)
 	m.WaitGroup.Wait()
@@ -187,7 +187,7 @@ func (m *Micro) WaitFor(d time.Duration) {
 	m.Wait()
 }
 
-// Context returns macro context.
+// Context returns Micro context.
 func (m *Micro) Context() context.Context {
 	return m.ctx
 }
@@ -219,21 +219,3 @@ func (m *Micro) registerHooks(hooks ...Hook) {
 		}
 	}
 }
-
-// Add adds n to macro size ands starts n gouroutines.
-// func (m *Micro) Add(n int) {
-// 	defer m.Unlock()
-// 	m.Lock()
-// 	m.size += n
-// 	m.stop = make(chan struct{}, m.size)
-// 	go startTask(m)
-// }
-
-// StopN stops n gouroutines.
-// func (m *Micro) StopN(n int) {
-// 	defer m.Unlock()
-// 	m.Lock()
-// 	for i := n; i > 0; i-- {
-// 		stopTask(m)
-// 	}
-// }
