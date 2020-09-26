@@ -8,8 +8,16 @@ import (
 	"time"
 )
 
+const (
+	SuccessEvent Event = "success"
+	FailedEvent Event = "failed"
+	DoneEvent Event = "done"
+)
+
 func BenchmarkNew(t *testing.B) {
-	micro := New(1, func(i int, m *Micro) {})
+	micro := New(1, func(i int, m *Micro) Event {
+		return SuccessEvent
+	})
 	micro.Start()
 	defer testTime(t, time.Now(), time.Millisecond*100, 10)
 	micro.WaitFor(time.Millisecond*100)
@@ -18,7 +26,8 @@ func BenchmarkNew(t *testing.B) {
 func TestNewWithContext(t *testing.T) {
 	defer testTime(t, time.Now(), time.Second/2, 50)
 	ctx, canc := context.WithCancel(context.Background())
-	m := NewWithContext(ctx, 1, func(i int, m *Micro) {
+	m := NewWithContext(ctx, 1, func(i int, m *Micro) Event {
+		return SuccessEvent
 	})
 	m.Start()
 	m.StopAfter(time.Second)
@@ -28,32 +37,33 @@ func TestNewWithContext(t *testing.T) {
 }
 
 func TestMicro_Hooks(t *testing.T) {
-	m := New(1, func(i int, m *Micro) {})
-	m.RegisterHooks(map[Event][]func(m *Micro) func(){
-		BeforeStart: {
-			func(m *Micro) func() {
+
+	micro1 := New(1, func(i int, m *Micro) Event {
+		log.Print("hello from micro1!")
+		return DoneEvent
+	})
+
+	micro1.RegisterHooks(map[Event][]func(*Micro) func(){
+		DoneEvent: {
+			func(micro *Micro) func() {
 				return func() {
-					log.Print("before start!")
+					log.Print("done, stop!")
+					micro.Stop()
 				}
 			},
-			func(m *Micro) func() {
+		},
+		BeforeStop: {
+			func(micro *Micro) func() {
 				return func() {
-					log.Print("before start2!")
+					log.Print("stop called!")
 				}
 			},
 		},
 	})
-	m.RegisterHooks(map[Event][]func(m *Micro) func(){
-		BeforeStart: {
-			func(m *Micro) func() {
-				return func() {
-					log.Print("before start3!")
-				}
-			},
-		},
-	})
-	m.Start()
-	m.WaitFor(time.Millisecond*100)
+	log.Print(micro1.Start())
+	micro1.WaitFor(time.Millisecond)
+	log.Print(micro1.Start())
+	micro1.Wait()
 }
 
 func testTime(t testing.TB, start time.Time, want, vary time.Duration) {
