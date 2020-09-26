@@ -31,6 +31,7 @@ type Interface interface {
 	WaitFor(duration time.Duration)
 	StopAfter(duration time.Duration)
 
+	OnEvent(Event, func(micro *Micro) func())
 	RunHooks(event Event)
 	RegisterHooks(hooks map[Event][]func(m *Micro) func())
 	ForSize(f func(i int, m *Micro))
