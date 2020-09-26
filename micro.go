@@ -1,0 +1,212 @@
+/*
+Copyright © 2020 Mateusz Kurowski
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+package micro
+
+import (
+	"context"
+	"sync"
+	"time"
+)
+
+// Micro is a micro thing.
+// You can start it.
+// You can stop it.
+// You can wait for it to finish.
+type Micro struct {
+	sync.RWMutex
+	sync.WaitGroup
+	size  int
+	task  func(int, *Micro)
+	stop  chan struct{}
+	ctx   context.Context
+	hooks map[Event][]func()
+}
+
+// New creates new Micro.
+// Size is equal to number of goroutines spawned when it's started.
+// Each spawned goroutine runs provided task
+func New(size int, task func(i int, m *Micro), hooks ...Hook) *Micro {
+	m := &Micro{
+		size:  size,
+		task:  task,
+		stop:  make(chan struct{}, size),
+		ctx:   context.Background(),
+		hooks: make(map[Event][]func()),
+	}
+	m.registerHooks(hooks...)
+	return m
+}
+
+
+// NewWithContext creates new Micro with context.
+func NewWithContext(ctx context.Context,size int, task func(i int, m *Micro), hooks ...Hook) *Micro {
+	m := New(size, task, hooks...)
+	m.ctx = ctx
+	return m
+}
+
+func (m *Micro) RegisterHooks(hooks map[Event][]func(m *Micro) func()) {
+	h := map[Event][]func(){}
+	for event, funcs := range hooks {
+		for _, f := range funcs {
+			h[event] = append(h[event], f(m))
+		}
+	}
+	m.registerHooks(&hook{h:h})
+}
+
+// Stop sends signals to stop all goroutines.
+func (m *Micro) Stop() {
+
+	// run hooks before locking
+	m.RunHooks(BeforeStop)
+
+	// obtain lock
+	defer m.Unlock()
+	m.Lock()
+
+	// notify each goroutine to stop
+	m.ForSize(func(i int, m *Micro) {
+		m.stop <- struct{}{}
+	})
+
+	// run hooks
+	m.RunHooks(AfterStop)
+}
+
+// Start starts macro size of goroutines.
+func (m *Micro) Start() {
+
+	// run hooks before locking
+	m.RunHooks(BeforeStart)
+
+	// obtain lock
+	defer m.Unlock()
+	m.Lock()
+
+	// channel that each goroutines notifies when it starts
+	var started = make(chan struct{}, m.size)
+
+	// spawn goroutines
+	m.ForSize(func(i int, m *Micro) {
+
+		m.WaitGroup.Add(1)
+		go func(i int) {
+			defer m.WaitGroup.Done()
+
+			// notify channel about start
+			started <- struct{}{}
+
+			// run task in loop
+			for {
+				select {
+				case <-m.stop:
+					return
+				case <-m.Context().Done():
+					return
+				default:
+					m.task(i, m)
+				}
+			}
+		}(i)
+	})
+
+	// wait for all goroutines
+	m.ForSize(func(i int, m *Micro) {
+		<-started
+	})
+
+	// run hooks
+	m.RunHooks(AfterStart)
+}
+
+// Wait waits for macro to finish.
+func (m *Micro) Wait() {
+	m.RunHooks(BeforeWait)
+	m.WaitGroup.Wait()
+	m.RunHooks(AfterWait)
+}
+
+// StopAfter waits d time.Duration before calling Stop.
+func (m *Micro) StopAfter(d time.Duration) {
+	t := time.NewTimer(d)
+	go func() {
+		for {
+			select {
+			case <-t.C:
+				t.Stop()
+				m.Stop()
+			}
+		}
+	}()
+}
+
+// WaitFor waits d time.Duration before calling Stop.
+func (m *Micro) WaitFor(d time.Duration) {
+	m.StopAfter(d)
+	m.Wait()
+}
+
+// Context returns macro context.
+func (m *Micro) Context() context.Context {
+	return m.ctx
+}
+
+// ForSize runs function f Micro.size number of times.
+func (m *Micro) ForSize(f func(int, *Micro)) {
+	for i := 0; i < m.size; i++ {
+		f(i, m)
+	}
+}
+
+// RunHooks runs Event hooks registered on Micro.
+func (m *Micro) RunHooks(e Event) {
+	if hooks, ok := m.hooks[e]; ok {
+		for _, hook := range hooks {
+			hook()
+		}
+	}
+}
+
+func (m *Micro) registerHooks(hooks ...Hook) {
+	for _, hook := range hooks {
+		for event, funcs := range hook.Register(m) {
+			if h, ok := m.hooks[event]; ok {
+				m.hooks[event] = append(h, funcs...)
+				continue
+			}
+			m.hooks[event] = funcs
+		}
+	}
+}
+
+// Add adds n to macro size ands starts n gouroutines.
+// func (m *Micro) Add(n int) {
+// 	defer m.Unlock()
+// 	m.Lock()
+// 	m.size += n
+// 	m.stop = make(chan struct{}, m.size)
+// 	go startTask(m)
+// }
+
+// StopN stops n gouroutines.
+// func (m *Micro) StopN(n int) {
+// 	defer m.Unlock()
+// 	m.Lock()
+// 	for i := n; i > 0; i-- {
+// 		stopTask(m)
+// 	}
+// }
