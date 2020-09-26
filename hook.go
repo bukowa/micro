@@ -31,6 +31,21 @@ func NewHook(micro *Micro, hooks map[Event][]func(m *Micro) func()) Hook {
 	return &hook{h:h}
 }
 
+// StopWhen stops micro on Event.
+type StopWhen struct {
+	Event
+}
+
+func (h *StopWhen) Register(m *Micro) map[Event][]func() {
+	return map[Event][]func(){
+		h.Event: {
+			func() {
+				m.Stop()
+			},
+		},
+	}
+}
+
 type hook struct {
 	h map[Event][]func()
 }
