@@ -37,10 +37,10 @@ type Micro struct {
 	started bool
 }
 
-// New creates new Micro.
+// NewMicro creates new Micro.
 // Size is equal to number of goroutines spawned when it's started.
 // Each spawned goroutine runs provided task
-func New(size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
+func NewMicro(size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
 
 	m := &Micro{
 		size:  size,
@@ -53,9 +53,9 @@ func New(size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
 	return m
 }
 
-// NewWithContext creates new Micro with context.
-func NewWithContext(ctx context.Context, size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
-	m := New(size, task, hooks...)
+// NewMicroWithContext creates new Micro with context.
+func NewMicroWithContext(ctx context.Context, size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
+	m := NewMicro(size, task, hooks...)
 	m.ctx = ctx
 	return m
 }
