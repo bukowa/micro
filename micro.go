@@ -60,16 +60,6 @@ func NewMicroWithContext(ctx context.Context, size int, task func(i int, m *Micr
 	return m
 }
 
-func (m *Micro) RegisterHooks(hooks map[Event][]func(m *Micro) func()) {
-	h := map[Event][]func(){}
-	for event, funcs := range hooks {
-		for _, f := range funcs {
-			h[event] = append(h[event], f(m))
-		}
-	}
-	m.registerHooks(&hook{h: h})
-}
-
 // Stop sends signals to stop all goroutines.
 func (m *Micro) Stop() bool {
 
@@ -199,6 +189,20 @@ func (m *Micro) ForSize(f func(int, *Micro)) {
 	}
 }
 
+func (m *Micro) RegisterHook(event Event, hook Hook) {
+	m.registerHooks(hook)
+}
+
+func (m *Micro) RegisterHooks(hooks map[Event][]func(m *Micro) func()) {
+	h := map[Event][]func(){}
+	for event, funcs := range hooks {
+		for _, f := range funcs {
+			h[event] = append(h[event], f(m))
+		}
+	}
+	m.registerHooks(&hook{h: h})
+}
+
 // RunHooks runs Event hooks registered on Micro.
 func (m *Micro) RunHooks(e Event) {
 	if hooks, ok := m.hooks[e]; ok {
@@ -208,7 +212,16 @@ func (m *Micro) RunHooks(e Event) {
 	}
 }
 
+// OnEvent registers func executed on Event.
+func (m *Micro) OnEvent(event Event, f func(m *Micro) func()) {
+	m.registerHooks(m.createHook(map[Event][]func(m *Micro) func(){
+		event: {f},
+	}))
+}
+
 func (m *Micro) registerHooks(hooks ...Hook) {
+	defer m.Unlock()
+	m.Lock()
 	for _, hook := range hooks {
 		for event, funcs := range hook.Register(m) {
 			if h, ok := m.hooks[event]; ok {
@@ -218,4 +231,15 @@ func (m *Micro) registerHooks(hooks ...Hook) {
 			m.hooks[event] = funcs
 		}
 	}
+}
+
+
+func (m *Micro) createHook(hooks map[Event][]func(m *Micro) func()) Hook {
+	h := map[Event][]func(){}
+	for event, funcs := range hooks {
+		for _, f := range funcs {
+			h[event] = append(h[event], f(m))
+		}
+	}
+	return &hook{h:h}
 }
