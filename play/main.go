@@ -4,7 +4,11 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"sync"
+)
+
+type (
+	Event string
+	Task func(e Event, c Client, r Server, payload interface{}) (event Event, p interface{})
 )
 
 type Client interface {
@@ -17,68 +21,14 @@ type Server interface {
 }
 
 type Micro struct {
-	eventC chan Event
-	x interface{}
-
-	Methods  interface{}
-	Handlers interface{}
+	Methods  []map[Event][]Task
+	Handlers []map[Event][]Task
 	Before   []map[Event]map[Event][]Task
 	When     []map[Event]map[Event]map[Event][]Task
-	Do       interface{}
 }
 
-func (m *Micro) Method(e Event, payload interface{}) {
-
-}
-
-func (m *Micro) Handle(e Event, payload interface{}) {
-
-}
-type Event string
-type Task func(e Event, c Client, r Server, payload interface{}) (event Event, p interface{})
-
-type message struct {
-	event Event
-	caller *Micro
-	payload interface{}
-}
-
-type eventListener struct {
-	sync.WaitGroup
-	task     Task
-	receiver *Micro
-	requestC chan message
-	responseC chan message
-	stopC    chan struct{}
-}
-//
-//func (el *eventListener) start() {
-//	el.Add(1)
-//	go func() {
-//		defer el.Done()
-//		for {
-//			select {
-//			case <- el.stopC:
-//				return
-//			case msg := <- el.requestC:
-//				//event := el.task(msg.event, msg.caller, el.receiver)
-//				el.responseC <- message{
-//					event:  event,
-//					caller: el.receiver,
-//				}
-//			}
-//		}
-//	}()
-//}
-
-const Stopped Event = "stopped"
-
-func (m *Micro) Stop() Task {
-	return func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
-		return Stopped, payload
-	}
-}
-
+func (m *Micro) Method(e Event, payload interface{}) {}
+func (m *Micro) Handle(e Event, payload interface{}) {}
 
 const AuthRequest Event = "auth"
 const LogRequest Event = "mses"
