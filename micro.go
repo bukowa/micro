@@ -26,38 +26,153 @@ import (
 // You can stop it.
 // You can wait for it to finish.
 type Micro struct {
-	sync.RWMutex
+	sync.Mutex
 	sync.WaitGroup
-	size  int
-	task  func(int, *Micro) Event
-	stop  chan struct{}
-	ctx   context.Context
-	hooks map[Event][]func()
+	task Task
 
+	stop  chan struct{}
+	hooks map[Event][]Task
+	notifyC chan Event
+	notify map[Event][]*Micro
+
+	size    int
 	started bool
+	ctx     context.Context
 }
+
+// Hook is a group of functions executed on Event.
+type Hook interface {
+	Register(m *Micro) map[Event][]Task
+}
+
+// Task is a function executed by Micro.
+// If task execution is a result of notified event,
+// then parent is set to Micro that issued that event.
+// In case Task execution is a result of normal flow, then Event e is set to Noop.
+// Task can be set to nil - if that happens - Micro acts only as Event listener.
+type Task func(e Event, caller *Micro, receiver *Micro) Event
+
+var (
+	StartReceiver = Task(func(e Event, c *Micro, r *Micro) Event {r.Start();return Noop})
+	StopReceiver = Task(func(e Event, c *Micro, r *Micro) Event {r.Stop();return Noop})
+	WaitReceiver = Task(func(e Event, c *Micro, r *Micro) Event {r.Wait();return Noop})
+	StartCaller = Task(func(e Event, c *Micro, r *Micro) Event {c.Start();return Noop})
+	StopCaller = Task(func(e Event, c *Micro, r *Micro) Event {c.Stop();return Noop})
+	WaitCaller = Task(func(e Event, c *Micro, r *Micro) Event {c.Wait();return Noop})
+)
 
 // NewMicro creates new Micro.
 // Size is equal to number of goroutines spawned when it's started.
-// Each spawned goroutine runs provided task
-func NewMicro(size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
-
+// Each spawned goroutine runs provided task until Micro is stopped.
+// Stop occurs when Stop is called or context is done.
+func NewMicro(size int, task Task, hooks ...Hook) *Micro {
 	m := &Micro{
-		size:  size,
 		task:  task,
+		size:  size,
 		stop:  make(chan struct{}, size),
-		ctx:   context.Background(),
-		hooks: make(map[Event][]func()),
+		hooks: make(map[Event][]Task),
+		notifyC: make(chan Event, 1),
+		notify: map[Event][]*Micro{},
+		ctx:    context.Background(),
 	}
+	m.registerHooks(
+		&hook{h: map[Event][]Task{
+			Stop: {
+
+			},
+		}},
+	)
 	m.registerHooks(hooks...)
 	return m
 }
 
-// NewMicroWithContext creates new Micro with context.
-func NewMicroWithContext(ctx context.Context, size int, task func(i int, m *Micro) Event, hooks ...Hook) *Micro {
+// NewMicroWithContext creates new Micro with context ctx.
+func NewMicroWithContext(ctx context.Context, size int, task Task, hooks ...Hook) *Micro {
 	m := NewMicro(size, task, hooks...)
 	m.ctx = ctx
 	return m
+}
+
+// Start starts Micro.size of goroutines.
+func (m *Micro) Start() bool {
+	// obtain lock
+	defer m.Unlock()
+	m.Lock()
+
+	// skip if started
+	if m.started {
+		return false
+	}
+	// run hooks
+	m.runHooks(BeforeStart)
+
+	// start notifies listener
+	m.WaitGroup.Add(1)
+	go func() {
+		defer m.WaitGroup.Done()
+		for {
+			select {
+			case <- m.ctx.Done():
+				return
+			case event, ok := <- m.notifyC:
+				if !ok {
+					return
+				}
+				m.runHooks(event)
+			}
+		}
+	}()
+
+	// channel that each goroutines notifies when it starts
+	var started = make(chan struct{}, m.size)
+
+	// spawn goroutines
+	if m.task != nil{
+
+		m.forSize(func(i int, m *Micro) {
+			m.WaitGroup.Add(1)
+			go func(i int) {
+				defer m.WaitGroup.Done()
+
+				// notify channel about start
+				started <- struct{}{}
+
+				// run task in loop
+				for {
+					select {
+					case <-m.stop:
+						return
+					case <-m.ctx.Done():
+						return
+					default:
+						event := m.task(Noop, m, m)
+						m.runHooks(event)
+					}
+				}
+			}(i)
+		})
+
+		// wait for all goroutines
+		m.forSize(func(i int, m *Micro) {
+			<-started
+		})
+		close(started)
+
+	}
+
+	// mark as started
+	m.started = true
+
+	// run hooks
+	m.runHooks(AfterStart)
+	return true
+}
+
+// Started returns boolean indicating if micro is started.
+func (m *Micro) Started() bool {
+	defer m.Unlock()
+	m.Lock()
+	return m.started
 }
 
 // Stop sends signals to stop all goroutines.
@@ -73,88 +188,22 @@ func (m *Micro) Stop() bool {
 	}
 
 	// run hooks
-	m.RunHooks(BeforeStop)
+	m.runHooks(BeforeStop)
 
 	// notify each goroutine to stop
-	m.ForSize(func(i int, m *Micro) {
+	m.forSize(func(i int, m *Micro) {
 		m.stop <- struct{}{}
 	})
 
+	// close event receiver
+	close(m.notifyC)
+
 	// run hooks
-	m.RunHooks(AfterStop)
+	m.runHooks(AfterStop)
 
 	// mark as not started
 	m.started = false
 	return true
-}
-
-// Started returns boolean indicating if micro is started.
-func (m *Micro) Started() bool {
-	defer m.Unlock()
-	m.Lock()
-	return m.started
-}
-
-// Start starts Micro.size of goroutines.
-func (m *Micro) Start() bool {
-
-	// obtain lock
-	defer m.Unlock()
-	m.Lock()
-
-	// skip if started
-	if m.started {
-		return false
-	}
-
-	// run hooksg
-	m.RunHooks(BeforeStart)
-
-	// channel that each goroutines notifies when it starts
-	var started = make(chan struct{}, m.size)
-
-	// spawn goroutines
-	m.ForSize(func(i int, m *Micro) {
-
-		m.WaitGroup.Add(1)
-		go func(i int) {
-			defer m.WaitGroup.Done()
-
-			// notify channel about start
-			started <- struct{}{}
-
-			// run task in loop
-			for {
-				select {
-				case <-m.stop:
-					return
-				case <-m.Context().Done():
-					return
-				default:
-					m.RunHooks(m.task(i, m))
-				}
-			}
-		}(i)
-	})
-
-	// wait for all goroutines
-	m.ForSize(func(i int, m *Micro) {
-		<-started
-	})
-
-	// mark as started
-	m.started = true
-
-	// run hooks
-	m.RunHooks(AfterStart)
-	return true
-}
-
-// Wait waits for Micro to finish.
-func (m *Micro) Wait() {
-	m.RunHooks(BeforeWait)
-	m.WaitGroup.Wait()
-	m.RunHooks(AfterWait)
 }
 
 // StopAfter waits d time.Duration before calling Stop.
@@ -171,52 +220,54 @@ func (m *Micro) StopAfter(d time.Duration) {
 	}()
 }
 
+// Wait waits for Micro to finish.
+func (m *Micro) Wait() {
+	m.runHooks(BeforeWait)
+	m.WaitGroup.Wait()
+	m.runHooks(AfterWait)
+}
+
 // WaitFor waits d time.Duration before calling Stop.
 func (m *Micro) WaitFor(d time.Duration) {
 	m.StopAfter(d)
 	m.Wait()
 }
-
-// Context returns Micro context.
-func (m *Micro) Context() context.Context {
-	return m.ctx
+// OnEvent registers task that runs on event.
+func (m *Micro) OnEvent(event Event, task Task) {
+	m.registerHooks(&hook{map[Event][]Task{event: {task}}})
 }
 
-// ForSize runs function f Micro.size number of times.
-func (m *Micro) ForSize(f func(int, *Micro)) {
+// Notify notifies micro about event that happened on m.
+func (m *Micro) Notify(micro *Micro, event Event) {
+	defer m.Unlock()
+	m.Lock()
+
+	m.notifyC = make(chan Event, len(m.notifyC)+1)
+	if v, ok := m.notify[event]; ok {
+		m.notify[event] = append(v, micro)
+		return
+	}
+	m.notify[event] = []*Micro{micro}
+}
+
+// forSize runs function f Micro.size number of times.
+func (m *Micro) forSize(f func(int, *Micro)) {
 	for i := 0; i < m.size; i++ {
 		f(i, m)
 	}
 }
 
-func (m *Micro) RegisterHook(event Event, hook Hook) {
-	m.registerHooks(hook)
-}
-
-func (m *Micro) RegisterHooks(hooks map[Event][]func(m *Micro) func()) {
-	h := map[Event][]func(){}
-	for event, funcs := range hooks {
-		for _, f := range funcs {
-			h[event] = append(h[event], f(m))
-		}
-	}
-	m.registerHooks(&hook{h: h})
-}
-
-// RunHooks runs Event hooks registered on Micro.
-func (m *Micro) RunHooks(e Event) {
+func (m *Micro) runHooks(e Event) {
 	if hooks, ok := m.hooks[e]; ok {
 		for _, hook := range hooks {
-			hook()
+			hook(e, m, m)
 		}
 	}
-}
-
-// OnEvent registers func executed on Event.
-func (m *Micro) OnEvent(event Event, f func(m *Micro) func()) {
-	m.registerHooks(m.createHook(map[Event][]func(m *Micro) func(){
-		event: {f},
-	}))
+	if receivers, ok := m.notify[e]; ok {
+		for _, receiver := range receivers {
+			receiver.notifyC <- e
+		}
+	}
 }
 
 func (m *Micro) registerHooks(hooks ...Hook) {
@@ -233,13 +284,10 @@ func (m *Micro) registerHooks(hooks ...Hook) {
 	}
 }
 
+type hook struct {
+	h map[Event][]Task
+}
 
-func (m *Micro) createHook(hooks map[Event][]func(m *Micro) func()) Hook {
-	h := map[Event][]func(){}
-	for event, funcs := range hooks {
-		for _, f := range funcs {
-			h[event] = append(h[event], f(m))
-		}
-	}
-	return &hook{h:h}
+func (h *hook) Register(*Micro) map[Event][]Task {
+	return h.h
 }
