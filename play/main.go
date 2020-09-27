@@ -74,55 +74,59 @@ type eventListener struct {
 const Stopped Event = "stopped"
 
 func (m *Micro) Stop() Task {
-	return func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+	return func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 		return Stopped, payload
 	}
 }
 
-type AuthEvent Event
+
 const AuthRequest Event = "auth"
-const AuthLog Event = "log"
 const LogRequest Event = "mses"
-const Response Event = "response"
-const R200 Event = "valid"
-const R404 Event = "invalid"
+const ServerCreated Event = "server_created"
+const ErrorBadPayload Event = ""
+const Success Event = ""
+const NOOP Event = "noop"
+const Stop Event = "stop"
+const Start Event = "start"
+const Request Event = "message"
+const Error Event = "error"
+const ServerStarted Event = "server_started"
+const ServerStopped Event = "server_stopped"
+const Unauthorized Event = "unauthorized"
+const Authorized Event = "authorized"
+const OK Event = "success"
 
 func main() {
+	// CLIENT
 	client := &Micro{}
-	server := &Micro{}
 
 	client.Methods = []map[Event][]Task{
-		{Request: {SayHello, SayHello2}},
-	}
-
-	type response struct {
-		msg string
-	}
-	type response2 struct {
-		msg []byte
+		{Request: {SayHello}},
 	}
 
 	client.Handlers = []map[Event][]Task{
 		{Error: {}},
-		{ErrorBadPayload: {logbadpayloadfile, logBadPayloadSlack("kanal13")}},
-		{Success: {Check1, Check2, Check3}},
+		{ErrorBadPayload: {logPrint("bad payload"), logBadPayloadSlack("channel2")}},
+		// how should we stop this chain without implementing built-in event type like "Discard"
+		// each task can check for a custom event like "Skip"
+		{Success: {CheckPayloadType, CheckPayloadType2, CheckPayloadType3}},
+		{Unauthorized: {logPrint("unauthorized")}},
 	}
 
 	client.When = []map[Event]map[Event]map[Event][]Task{
 		{Success: {
-			OK: {Huraa!, Discard},
-			Error: {Discard},
+			// TaskOK
+			OK: {TaskOK, "discard?"},
+			Error: {"discard?"},
 		}},
 	}
+
+	// SERVER
+	server := &Micro{}
+
 	server.Methods = []map[Event][]Task{
-		{Start: {
-			CreateServer,
-			StartServer,
-			LogStarted,
-		}},
-		{Stop: {
-			StopServer,
-		}},
+		{Start: {CreateServer, StartServer, LogStarted,}},
+		{Stop: {StopServer}},
 	}
 
 	server.Handlers = []map[Event][]Task{
@@ -131,7 +135,7 @@ func main() {
 
 	server.Before = []map[Event]map[Event][]Task{
 		{Request: {
-			LogRequest:  {logMessage},
+			LogRequest:  {logPrint("new request!")},
 			AuthRequest: {Authorize},
 		}},
 	}
@@ -139,79 +143,46 @@ func main() {
 	server.When = []map[Event]map[Event]map[Event][]Task{
 		{Request: {
 			AuthRequest: {
-				Unauthorized: {ResponseUnauthorized, Discard},
+				// ???
+				Unauthorized: {ReplyUnathorized?, "discard?"},
 			},
 		}},
 	}
 
 	server.Method(Start, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		server.Handle(Request, request{w, r})
+		server.Handle(Request, serverRequest{w, r})
 	}))
 
 	client.Method(Request, clientRequest{
 		server: server,
 		body: "hello world!",
 	})
-	client.Method(Request, clientReqest2{
-		server2: server,
-		asdasdas: []byte(),
-	})
 }
 
-
-const NOOP Event = "noop"
-const Stop Event = "stop"
-const Start Event = "start"
-const StartError Event = "start_error"
-const StopError Event = "stop_error"
-const EventHello Event = "hello"
-const EventWorld Event = "world"
-const Request Event = "message"
-const Error Event = "error"
-const ServerStarted Event = "server_started"
-const ServerStopped Event = "server_stopped"
-const Unauthorized Event = "unathorized"
-const Authorized Event = "authorized"
-const Cancel Event = "cancel"
+type serverRequest struct {
+	w http.ResponseWriter
+	r *http.Request
+}
 
 type clientRequest struct{
 	server *Micro
 	body string
 }
 
-var SayHello = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+var SayHello = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 	if v, ok := payload.(clientRequest); ok {
 		v.server.Handle(event, v.body)
-		return Discard, nil
+		return "??", nil
 	}
 	return ErrorBadPayload, payload
 })
 
-var Reply = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	caller.Handle(event, payload)
-	return NOOP, nil
+var CreateServer = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
+	return ServerCreated, &http.Server{Handler: payload.(http.HandlerFunc)}
 })
 
-var ResponseUnauthorized = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	v, ok := payload.(*user); ok {
-	}
-})
-
-
-var CreateServer = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	return NOOP, &http.Server{Handler: payload.(http.HandlerFunc)}
-})
-
-type request struct {
-	w http.ResponseWriter
-	r *http.Request
-}
-
-var StartServer = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+var StartServer = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 	if v, ok := payload.(*http.Server); ok {
-		v.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receiver.Handle(Request, request{w, r})
-		})
 		if err := v.ListenAndServe(); err != nil {
 			return Error, err
 		}
@@ -219,33 +190,28 @@ var StartServer = Task(func(event Event, caller *Micro, receiver *Micro, payload
 	return ServerStarted, payload
 })
 
-var SendResponse = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	return NOOP, nil
-})
-
-var logMessage = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	return NOOP, payload
-})
-
-const ErrorBadPayload Event = ""
-const Success Event = ""
-
 var MessageHandler = Task(func(event Event, c Client, s Server, payload interface{}) (e Event, p interface{}) {
-	if v, ok := payload.(clientRequest); ok {
-		log.Print(v.body)
+	if _, ok := payload.(clientRequest); ok {
 		c.Handle(Success, nil)
-		return Success, v
+		return Success, payload
 	}
-	c.Handle(ErrorBadPayload, nil)
+	c.Handle(ErrorBadPayload, payload)
 	return ErrorBadPayload, payload
 })
+
+var logPrint = func(v ...interface{}) Task {
+	return func(e Event, c Client, r Server, payload interface{}) (event Event, p interface{}) {
+		log.Print(e, v)
+		return e, p
+	}
+}
 
 type user struct {
 	login string
 	password string
 }
 
-var Authorize = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+var Authorize = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 	if v, ok := payload.(*user); ok {
 		if v.login == "admin" {
 			return Authorized, v
@@ -254,7 +220,7 @@ var Authorize = Task(func(event Event, caller *Micro, receiver *Micro, payload i
 	return Unauthorized, payload
 })
 
-var StopServer = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+var StopServer = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 	err := p.(*http.Server).Shutdown(context.Background())
 	if err != nil {
 		return Error, err
@@ -262,12 +228,7 @@ var StopServer = Task(func(event Event, caller *Micro, receiver *Micro, payload 
 	return ServerStopped, payload
 })
 
-var LogStopped = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	log.Print("server stopped")
-	return NOOP, payload
-})
-
-var LogStarted = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
+var LogStarted = Task(func(event Event, caller Client, receiver Server, payload interface{}) (e Event, p interface{}) {
 	log.Print("server started")
 	return NOOP, payload
 })
