@@ -92,17 +92,26 @@ func main() {
 	server := &Micro{}
 
 	client.Methods = []map[Event][]Task{
-		{Request: {SayHello}},
+		{Request: {SayHello, SayHello2}},
+	}
+
+	type response struct {
+		msg string
+	}
+	type response2 struct {
+		msg []byte
 	}
 
 	client.Handlers = []map[Event][]Task{
-		{Request: {}},
+		{Error: {}},
+		{ErrorBadPayload: {logbadpayloadfile, logBadPayloadSlack("kanal13")}},
+		{Success: {Check1, Check2, Check3}},
 	}
 
 	client.When = []map[Event]map[Event]map[Event][]Task{
-		{Request: {
-			R200: {},
-			R404: {},
+		{Success: {
+			OK: {Huraa!, Discard},
+			Error: {Discard},
 		}},
 	}
 	server.Methods = []map[Event][]Task{
@@ -130,7 +139,7 @@ func main() {
 	server.When = []map[Event]map[Event]map[Event][]Task{
 		{Request: {
 			AuthRequest: {
-				Unauthorized: {ResponseUnauthorized, Reply},
+				Unauthorized: {ResponseUnauthorized, Discard},
 			},
 		}},
 	}
@@ -142,6 +151,10 @@ func main() {
 	client.Method(Request, clientRequest{
 		server: server,
 		body: "hello world!",
+	})
+	client.Method(Request, clientReqest2{
+		server2: server,
+		asdasdas: []byte(),
 	})
 }
 
@@ -169,8 +182,9 @@ type clientRequest struct{
 var SayHello = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
 	if v, ok := payload.(clientRequest); ok {
 		v.server.Handle(event, v.body)
+		return Discard, nil
 	}
-	return NOOP, nil
+	return ErrorBadPayload, payload
 })
 
 var Reply = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
@@ -213,8 +227,17 @@ var logMessage = Task(func(event Event, caller *Micro, receiver *Micro, payload 
 	return NOOP, payload
 })
 
-var MessageHandler = Task(func(event Event, caller *Micro, receiver *Micro, payload interface{}) (e Event, p interface{}) {
-	return NOOP, payload
+const ErrorBadPayload Event = ""
+const Success Event = ""
+
+var MessageHandler = Task(func(event Event, c Client, s Server, payload interface{}) (e Event, p interface{}) {
+	if v, ok := payload.(clientRequest); ok {
+		log.Print(v.body)
+		c.Handle(Success, nil)
+		return Success, v
+	}
+	c.Handle(ErrorBadPayload, nil)
+	return ErrorBadPayload, payload
 })
 
 type user struct {
