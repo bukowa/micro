@@ -31,10 +31,8 @@ func TestNewWithContext(t *testing.T) {
 		return SuccessEvent
 	})
 	m.Start()
-	m.StopAfter(time.Second)
 	time.Sleep(time.Second/2)
 	canc()
-	m.Wait()
 	m.Wait()
 }
 
@@ -45,27 +43,40 @@ func TestMicro_Hooks(t *testing.T) {
 		return DoneEvent
 	})
 
-	micro1.RegisterHooks(map[Event][]func(*Micro) func(){
+	micro1.RegisterHooks(Hooks{
 		DoneEvent: {
 			func(micro *Micro) func() {
 				return func() {
 					log.Print("done, stop!")
-					micro.Stop()
+					log.Print(micro.Stop())
+					log.Print("stopped")
+				}
+			},
+		},
+		BeforeWait: {
+			func(micro *Micro) func() {
+				return func() {
+					log.Print("before wait")
+				}
+			},
+		},
+		AfterWait: {
+			func(micro *Micro) func() {
+				return func() {
+					log.Print("after wait")
 				}
 			},
 		},
 		BeforeStop: {
 			func(micro *Micro) func() {
 				return func() {
-					log.Print("stop called!")
+					log.Print("before stop")
 				}
 			},
 		},
 	})
-	log.Print(micro1.Start())
-	micro1.WaitFor(time.Millisecond)
-	log.Print(micro1.Start())
-	micro1.Wait()
+	micro1.Start()
+	micro1.WaitFor(time.Second)
 }
 
 func TestDoOnce(t *testing.T) {
