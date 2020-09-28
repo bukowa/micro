@@ -20,6 +20,9 @@ type Hook interface {
 	Register(m *Micro) map[Event][]func()
 }
 
+// Hooks represents hooks happening on Event.
+type Hooks map[Event][]func(*Micro) func()
+
 // NewHook creates new Hook.
 func NewHook(micro *Micro, hooks map[Event][]func(m *Micro) func()) Hook {
 	h := map[Event][]func(){}
