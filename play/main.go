@@ -30,6 +30,8 @@ type Micro struct {
 func (m *Micro) Method(e Event, payload interface{}) {}
 func (m *Micro) Handle(e Event, payload interface{}) {}
 
+const Skip Event = "skip"
+
 const AuthRequest Event = "auth"
 const LogRequest Event = "mses"
 const ServerCreated Event = "server_created"
@@ -46,7 +48,13 @@ const Unauthorized Event = "unauthorized"
 const Authorized Event = "authorized"
 const OK Event = "success"
 
+
+var Crawl = Task(func(e Event, c Client, r Server, payload interface{}) (event Event, p interface{}) {
+	return "success", nil
+})
+
 func main() {
+
 	// CLIENT
 	client := &Micro{}
 
@@ -75,7 +83,7 @@ func main() {
 	server := &Micro{}
 
 	server.Methods = []map[Event][]Task{
-		{Start: {CreateServer, StartServer, LogStarted,}},
+		{Start: {CreateServer, StartServer, LogStarted}},
 		{Stop: {StopServer}},
 	}
 
@@ -93,7 +101,6 @@ func main() {
 	server.When = []map[Event]map[Event]map[Event][]Task{
 		{Request: {
 			AuthRequest: {
-				// ???
 				Unauthorized: {ReplyUnathorized?, "discard?"},
 			},
 		}},

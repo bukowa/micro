@@ -5,7 +5,38 @@ import (
 	"testing"
 )
 
-func TestMicro_Task(t *testing.T) {
+func TestMicro_Notify(t *testing.T) {
+	var n int
+
+	var stop = Task(func(e Event, c *Micro, r *Micro) Event {
+		if n == 100 {
+			return Stop
+		}
+		return Noop
+	})
+	var increase = Task(func(e Event, c *Micro, r *Micro) Event {
+		n ++
+		return Noop
+	})
+	var request = Task(func(e Event, c *Micro, r *Micro) Event {
+		return "add"
+	})
+
+	caller := NewMicro(1, request)
+	receiver := NewMicro(1, stop)
+
+	receiver.OnEvent("add", increase)
+	receiver.OnEvent(Stop, StopReceiver, StopCaller)
+
+	caller.Notify(receiver, "add")
+
+	receiver.Start()
+	caller.Start()
+
+	receiver.Wait()
+	caller.Wait()
+}
+func TestMicro_OnEventStopReceiver(t *testing.T) {
 	var n int
 	task := Task(func(e Event, c *Micro, r *Micro) Event {
 		n ++
@@ -15,6 +46,9 @@ func TestMicro_Task(t *testing.T) {
 	micro.OnEvent(Stop, StopReceiver)
 	micro.Start()
 	micro.Wait()
+	if n != 1 {
+		t.Error(n)
+	}
 }
 
 func TestMicro_TaskNil(t *testing.T) {
