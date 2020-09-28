@@ -19,17 +19,28 @@ package micro
 type Event string
 
 const (
+	// Noop event tells micro nothing.
+	Noop Event = "event_noop"
+	// Start event tells micro to start.
+	Start Event = "event_start"
+	// Stop event tells micro to stop.
+	Stop Event = "event_stop"
+	// Wait event tells micro to wait.
+	Wait Event = "event_wait"
+)
+
+const (
 	// BeforeStart happens before micro starts.
-	BeforeStart Event = "before_start"
+	BeforeStart Event = "event_before_start"
 	// BeforeStop happens before micro stops.
-	BeforeStop Event = "before_stop"
+	BeforeStop Event = "event_before_stop"
 	// BeforeWait happens before micro waits.
-	BeforeWait Event = "before_wait"
+	BeforeWait Event = "event_before_wait"
 
 	// AfterStart happens after micro starts.
-	AfterStart Event = "after_start"
+	AfterStart Event = "event_after_start"
 	// AfterStop happens after micro stops.
-	AfterStop Event = "after_stop"
+	AfterStop Event = "event_after_stop"
 	// AfterWait happens after micro waits.
-	AfterWait Event = "after_wait"
+	AfterWait Event = "event_after_wait"
 )
