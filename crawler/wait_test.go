@@ -67,8 +67,8 @@ func TestWaiter(t *testing.T) {
 	}
 	for _, tt := range tests {
 		// add some time in margin of error
-		wantSleep2 := tt.wantSleep - time.Millisecond*20
-		wantSleep := tt.wantSleep + time.Millisecond*20
+		wantSleep2 := tt.wantSleep - time.Millisecond*300
+		wantSleep := tt.wantSleep + time.Millisecond*300
 
 		t.Run(tt.name, func(t *testing.T) {
 			crawler := NewCrawler(10,
@@ -91,13 +91,13 @@ func TestWaiter(t *testing.T) {
 
 }
 
-// Time increase is 100ms because this test can fail on slow machines.
+// Time increase is 300ms because this test can fail on slow machines.
 // For example Gitlab-Runner have issues with this.
 func TestWaiter2(t *testing.T) {
 	var count = 10
 	var ticks = time.Second
-	var wantLess = time.Second*15 - time.Millisecond*100
-	var wantMore = time.Second*15 + time.Millisecond*100
+	var wantLess = time.Second*15 - time.Millisecond*300
+	var wantMore = time.Second*15 + time.Millisecond*300
 	var ticker = time.NewTicker(time.Second * 5)
 
 	crawler := NewCrawler(10,
